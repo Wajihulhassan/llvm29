@@ -49,13 +49,13 @@
 
 using namespace llvm;
 
-//STATISTIC(HelloCounter, "Find the basic blocks that got changed");
+//STATISTIC(DiffCounter, "Find the basic blocks that got Modified/Impacted");
 
 namespace {
  
   class Hello : public ModulePass {
   public:
-    static char ID; // Pass identification, replacement for typeid
+    static char ID; 
 
     std::vector<BasicBlock*> mod_bbs;
     std::vector<BasicBlock*> temp_bbs;
