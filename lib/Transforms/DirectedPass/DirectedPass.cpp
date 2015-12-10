@@ -64,12 +64,15 @@ namespace {
     std::vector<std::vector<BasicBlock*> > paths;
     std::vector<BasicBlock*> *my_diff_bbs;
     DominatorTree* domTree;
+    std::vector<Instruction*> write_vec;
+    std::vector<Instruction*> cond_vec;
     int my_tt;
     int *g;
 
    Hello() : ModulePass(ID) {}
 
     virtual bool runOnModule(Module &M) {
+      diff_bbs_vec=new std::vector<BasicBlock*>();
       errs() << "Function: I Am here wajih " << "\n";
       Function *F1 = M.getFunction("func");
       Function *F2 = M.getFunction("func_2");
@@ -92,11 +95,13 @@ namespace {
 	}
         diff(LL,RR);	
       }
+      errs() << "I am here bro" << "\n" ;
       for (int c = 0; c<diff_bbs_vec->size();c++){
 	BasicBlock * temp_bb=  diff_bbs_vec->at(c);
 	errs()<< " Different BB ======= " << temp_bb->getName() << "\n" ;
       }
-      *g = 3;
+      errs() << "Size of cond and write vectors " << cond_vec.size()<<" --- " << write_vec.size()  <<"\n" ;
+      //*g = 3;
       return false;
     } // runOnModule
     void diff(BasicBlock *L, BasicBlock *R) {
@@ -108,7 +113,17 @@ namespace {
 	Instruction *LeftI = &*LI, *RightI = &*RI;
 	// If the instructions differ, start the more sophisticated diff
 	// algorithm at the start of the block.
-	if (diff(LeftI, RightI, false)) {
+	// To make a vector of write and conditional statement
+	if(isa<StoreInst>(RI)){
+	  write_vec.push_back(RI);
+	}else if(isa<CmpInst>(RI)){
+	  cond_vec.push_back(RI);
+	}
+	
+	//
+	LeftI->dump();
+	RightI->dump();
+	if (diff(LeftI, RightI, true)) {
 	  bbs.push_back(L->getName());
 	  diff_bbs_vec->push_back(R);
 	  return ;
@@ -117,8 +132,9 @@ namespace {
 	// // Otherwise, tentatively unify them.
 	// if (!LeftI->use_empty())
 	//   TentativeValues.insert(std::make_pair(LeftI, RightI));
-
+	
 	++LI, ++RI;
+	errs()<< " Different BB ======= out of diff function " << "\n" ;
       } while (LI != LE);
 
     }
