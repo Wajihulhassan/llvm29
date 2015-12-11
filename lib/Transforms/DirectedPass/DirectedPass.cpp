@@ -41,8 +41,9 @@
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/ADT/DepthFirstIterator.h"
-
+#include "llvm/Analysis/PostDominators.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/MemoryDependenceAnalysis.h"
 
 #include <vector>
 #include <utility>
@@ -52,9 +53,14 @@ using namespace llvm;
 //STATISTIC(DiffCounter, "Find the basic blocks that got Modified/Impacted");
 
 namespace {
- 
+
+#include "llvm/Function.h"
+using namespace llvm;
+
+
   class Hello : public ModulePass {
   public:
+
     static char ID; 
 
     std::vector<BasicBlock*> mod_bbs;
@@ -66,20 +72,25 @@ namespace {
     DominatorTree* domTree;
     std::vector<Instruction*> write_vec;
     std::vector<Instruction*> cond_vec;
+    std::vector<Instruction*> ACN;
+    std::vector<Instruction*> AWN;
+
     int my_tt;
     int *g;
+
+    std::map<BasicBlock *, std::set<BasicBlock *> > controlDeps_;
 
    Hello() : ModulePass(ID) {}
 
     virtual bool runOnModule(Module &M) {
       diff_bbs_vec=new std::vector<BasicBlock*>();
-      errs() << "Function: I Am here wajih " << "\n";
+      errs() << "Starting my diff/control/datadependence " << "\n";
       Function *F1 = M.getFunction("func");
       Function *F2 = M.getFunction("func_2");
       domTree = &getAnalysis<DominatorTree>(*F2);
-
-
-      errs() << "Function: " << F1->getName()<< "\n";
+      PostDominatorTree &PDT = getAnalysis<PostDominatorTree>(*F2);
+      getControlDependencies(*F2, PDT);
+      // 
       for (Function::iterator bb = F1->begin() , e = F1->end(); bb !=e ;++bb ){
 	temp_bbs.push_back(bb);
       }
@@ -95,46 +106,49 @@ namespace {
 	}
         diff(LL,RR);	
       }
-      errs() << "I am here bro" << "\n" ;
+      
       for (int c = 0; c<diff_bbs_vec->size();c++){
 	BasicBlock * temp_bb=  diff_bbs_vec->at(c);
-	errs()<< " Different BB ======= " << temp_bb->getName() << "\n" ;
       }
       errs() << "Size of cond and write vectors " << cond_vec.size()<<" --- " << write_vec.size()  <<"\n" ;
-      //*g = 3;
+      BasicBlock* bb_temp=diff_bbs_vec->at(0);
+      std::set<BasicBlock*> cont_dep = controlDeps_[bb_temp];
+      
+      for (std::set<BasicBlock*>::iterator iter = cont_dep.begin(), iter_end = cont_dep.end();iter != iter_end ; iter++){
+	BasicBlock* bb = *iter;
+	errs()<< " Dependent BB ======= " << bb->getName() << "\n" ;
+      }
       return false;
     } // runOnModule
+
+    // ============= Finding instruction level differences and keeping track of them ========
     void diff(BasicBlock *L, BasicBlock *R) {
       BasicBlock::iterator LI = L->begin(), LE = L->end();
       BasicBlock::iterator RI = R->begin();
-
+      bool flag = false;
       do {
 	assert(LI != LE && RI != R->end());
 	Instruction *LeftI = &*LI, *RightI = &*RI;
-	// If the instructions differ, start the more sophisticated diff
-	// algorithm at the start of the block.
-	// To make a vector of write and conditional statement
+	// Adding cond and write statements to vector
 	if(isa<StoreInst>(RI)){
 	  write_vec.push_back(RI);
 	}else if(isa<CmpInst>(RI)){
 	  cond_vec.push_back(RI);
 	}
-	
-	//
-	LeftI->dump();
-	RightI->dump();
-	if (diff(LeftI, RightI, true)) {
+
+	if (diff(LeftI, RightI, flag)) {
+	  // Adding cond and write to affected sets
+	  if(isa<StoreInst>(RI)){
+	    AWN.push_back(RI);
+	  }else if(isa<CmpInst>(RI)){
+	    ACN.push_back(RI);
+	  }
 	  bbs.push_back(L->getName());
 	  diff_bbs_vec->push_back(R);
 	  return ;
-	}
-
-	// // Otherwise, tentatively unify them.
-	// if (!LeftI->use_empty())
-	//   TentativeValues.insert(std::make_pair(LeftI, RightI));
-	
+	}	
 	++LI, ++RI;
-	errs()<< " Different BB ======= out of diff function " << "\n" ;
+	flag = false;
       } while (LI != LE);
 
     }
@@ -145,7 +159,6 @@ namespace {
 	if (complain) errs() << "different instruction types" << "\n";
 	return true;
       }
-
       if (isa<CmpInst>(L)) {
 	if (cast<CmpInst>(L)->getPredicate()
             != cast<CmpInst>(R)->getPredicate()) {
@@ -189,6 +202,7 @@ namespace {
 	return false;
       }
       for (unsigned I = 0, E = L->getNumOperands(); I != E; ++I) {
+	if (complain) errs() << "Operands Loop" << "\n";
 	Value *LO = L->getOperand(I), *RO = R->getOperand(I);
 	if (!equivalentAsOperands(LO, RO)) {
 	  if (complain) errs()<< "operands differ" << "\n";
@@ -215,9 +229,6 @@ namespace {
       if (isa<ConstantExpr>(L))
 	return equivalentAsOperands(cast<ConstantExpr>(L),
 				    cast<ConstantExpr>(R));
-
-      // Nulls of the "same type" don't always actually have the same
-      // type; I don't know why.  Just white-list them.
       if (isa<ConstantPointerNull>(L))
 	return true;
       return false;
@@ -228,7 +239,6 @@ namespace {
 	return true;
       if (L->getOpcode() != R->getOpcode())
 	return false;
-
       switch (L->getOpcode()) {
       case Instruction::ICmp:
       case Instruction::FCmp:
@@ -237,57 +247,120 @@ namespace {
 	break;
 
       case Instruction::GetElementPtr:
-	// FIXME: inbounds?
 	break;
 
       default:
 	break;
       }
-
       if (L->getNumOperands() != R->getNumOperands())
 	return false;
-
       for (unsigned I = 0, E = L->getNumOperands(); I != E; ++I)
 	if (!equivalentAsOperands(L->getOperand(I), R->getOperand(I)))
 	  return false;
-
       return true;
     } // equivalent .. ()
 
     bool equivalentAsOperands(Value *L, Value *R) {
-      //errs() << " I am here in equivalent Values " << "\n" ;
-      // Fall out if the values have different kind.
-      // This possibly shouldn't take priority over oracles.
       if (L->getValueID() != R->getValueID())
 	return false;
-
-      // Value subtypes:  Argument, Constant, Instruction, BasicBlock,
-      //                  InlineAsm, MDNode, MDString, PseudoSourceValue
-
       if (isa<Constant>(L))
 	return equivalentAsOperands(cast<Constant>(L), cast<Constant>(R));
-
-      // if (isa<Instruction>(L))
-      // 	return Values[L] == R || TentativeValues.count(std::make_pair(L, R));
-
-      // if (isa<Argument>(L))
-      // 	return Values[L] == R;
-
-      // if (isa<BasicBlock>(L))
-      // 	return Blocks[cast<BasicBlock>(L)] != R;
-
       // Pretend everything else is identical.
       return true;
     } // equivalent() ..
 
+    // ================ Control Dependency findings ========================================
+    std::vector<std::vector<BasicBlock*> > getNonPDomEdges(  Function &F, const PostDominatorTree &PDT) const {
+      std::vector<std::vector<BasicBlock*> > S;
+      for (Function::iterator BBi = F.begin(), BBe = F.end(); BBi != BBe; ++BBi) {
+	BasicBlock *A = &(*BBi);
+	// Get the edge A->B, ie get the successors of A
+	//errs() << "HEAD --- " << A->getName()  << "\n";
+	for (succ_iterator Si = succ_begin(A), Se = succ_end(A); 
+	     Si != Se; ++ Si) {
+	  BasicBlock *B = *Si;
+	  //errs() << "SUCC --- " << B->getName()  << "\n";
+	  if (!PDT.properlyDominates(B, A)) {
+	    // B does not post-dominate A in the edge (A->B), this is the criteria
+	    // for being in the set S
+	    std::vector<BasicBlock*> temp_vec;
+	    temp_vec.push_back(B); //head
+	    temp_vec.push_back(A); // tail
+	    S.push_back(temp_vec);
+	  }
+	}
+      }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      //AU.setPreservesCFG();
-      AU.addRequired<DominatorTree>();
+      return S;
     }
 
- 
+    void updateControlDependencies(const std::vector<std::vector<BasicBlock*> > &S, 
+						      PostDominatorTree &PDT) {
+      BasicBlock *L;
+      for (std::vector<std::vector<BasicBlock*> >::size_type i = 0; i < S.size(); ++i) {
+	std::vector<BasicBlock*> curEdge;
+	curEdge = S[i];
+
+	BasicBlock *A;
+	BasicBlock *B;
+
+	A = curEdge.at(1); // tail
+ 	B = curEdge.at(0); // head
+
+	L = PDT.findNearestCommonDominator(A, B);
+	if (L == NULL) {
+	  continue;
+	}
+
+	DomTreeNode *domNodeA;
+	domNodeA = PDT.getNode(A);
+
+	DomTreeNode *parentA;
+	parentA = domNodeA->getIDom();  // NULL?
+	DomTreeNode *domNodeB;
+	domNodeB = PDT.getNode(B);
+	DomTreeNode *curNode;
+	curNode = domNodeB;
+	std::set<BasicBlock *> &depSet = controlDeps_[A];
+
+	while (curNode != parentA) {
+
+	  errs() << "[DEBUG] Iterating up dom tree\n";
+
+	  // Mark each node visited on our way to the parent of A, but not A's
+	  // parent, as control dependent on A
+	  depSet.insert(curNode->getBlock());
+
+	  // Update cur
+	  curNode = curNode->getIDom();
+	} // end while (cur != parentA)
+	// Because std::map::operator[] returns a reference to the set then I
+	// believe we do not need to do any insertions
+
+	errs() << "[DEBUG] size of depSet: " << depSet.size() << '\n';
+	errs() << "[DEBUG] size of map value: " << controlDeps_[A].size() << '\n';
+	assert(depSet.size() == controlDeps_[A].size() && "map size mis-match");
+      } // end for(vector<>)
+    }
+
+    void getControlDependencies(Function &F, PostDominatorTree &PDT) {
+      // All edges in the CFG (A->B) such that B does not post-dominate A
+      std::vector<std::vector<BasicBlock*> > S;
+
+      S = getNonPDomEdges(F, PDT);
+      //errs() << "[DEBUG] Size of set S: " << S.size() << '\n';
+      updateControlDependencies(S, PDT);
+    }
+
+    // Other passes I need =======================================================
+    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+      AU.addRequired<MemoryDependenceAnalysis>();
+      AU.setPreservesAll();
+      AU.addRequired<DominatorTree>();
+      AU.addRequired<PostDominatorTree>();
+    }
   }; // class
+  // External Interface of this pass for KLEE
   ModulePass *createDiffBlocksPass(std::vector<BasicBlock*> *diff_bb_vec,int * in)
   {    
     Hello *cg = new Hello();
@@ -298,6 +371,10 @@ namespace {
 
 } //namespace
 
+
+
+// ===========================================================================================
+// ============================Second Pass for Reachability===================================
 char Hello::ID = 0;
 static RegisterPass<Hello> X("diffFinder", "Identify differences between two versions of program at basic block level");
 

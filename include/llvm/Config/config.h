@@ -65,7 +65,7 @@
 #define HAVE_CEILF 1
 
 /* Define if the neat program is available */
-/* #undef HAVE_CIRCO */
+#define HAVE_CIRCO 1
 
 /* Define to 1 if you have the `closedir' function. */
 #define HAVE_CLOSEDIR 1
@@ -106,10 +106,10 @@
 /* #undef HAVE_DL_H */
 
 /* Define if the dot program is available */
-/* #undef HAVE_DOT */
+#define HAVE_DOT 1
 
 /* Define if the dotty program is available */
-/* #undef HAVE_DOTTY */
+#define HAVE_DOTTY 1
 
 /* Define if you have the _dyld_func_lookup function. */
 /* #undef HAVE_DYLD */
@@ -127,7 +127,7 @@
 #define HAVE_FCNTL_H 1
 
 /* Define if the neat program is available */
-/* #undef HAVE_FDP */
+#define HAVE_FDP 1
 
 /* Define to 1 if you have the <fenv.h> header file. */
 #define HAVE_FENV_H 1
@@ -282,7 +282,7 @@
 #define HAVE_NEARBYINTF 1
 
 /* Define if the neat program is available */
-/* #undef HAVE_NEATO */
+#define HAVE_NEATO 1
 
 /* Define to 1 if you have the `opendir' function. */
 #define HAVE_OPENDIR 1
@@ -452,7 +452,7 @@
 #define HAVE_TERMIOS_H 1
 
 /* Define if the neat program is available */
-/* #undef HAVE_TWOPI */
+#define HAVE_TWOPI 1
 
 /* Define to 1 if the system has the type `uint64_t'. */
 #define HAVE_UINT64_T 1
@@ -536,7 +536,7 @@
 #define LLVM_BINDIR "/usr/local/bin"
 
 /* Time at which LLVM was configured */
-#define LLVM_CONFIGTIME "Tue Oct 13 01:21:57 CDT 2015"
+#define LLVM_CONFIGTIME "Thu Dec 10 23:46:53 CST 2015"
 
 /* Installation directory for data files */
 #define LLVM_DATADIR "/usr/local/share/llvm"
@@ -584,16 +584,16 @@
 /* #undef LLVM_ON_WIN32 */
 
 /* Define to path to circo program if found or 'echo circo' otherwise */
-/* #undef LLVM_PATH_CIRCO */
+#define LLVM_PATH_CIRCO "/usr/bin/circo"
 
 /* Define to path to dot program if found or 'echo dot' otherwise */
-/* #undef LLVM_PATH_DOT */
+#define LLVM_PATH_DOT "/usr/bin/dot"
 
 /* Define to path to dotty program if found or 'echo dotty' otherwise */
-/* #undef LLVM_PATH_DOTTY */
+#define LLVM_PATH_DOTTY "/usr/bin/dotty"
 
 /* Define to path to fdp program if found or 'echo fdp' otherwise */
-/* #undef LLVM_PATH_FDP */
+#define LLVM_PATH_FDP "/usr/bin/fdp"
 
 /* Define to path to Graphviz program if found or 'echo Graphviz' otherwise */
 /* #undef LLVM_PATH_GRAPHVIZ */
@@ -602,10 +602,10 @@
 /* #undef LLVM_PATH_GV */
 
 /* Define to path to neato program if found or 'echo neato' otherwise */
-/* #undef LLVM_PATH_NEATO */
+#define LLVM_PATH_NEATO "/usr/bin/neato"
 
 /* Define to path to twopi program if found or 'echo twopi' otherwise */
-/* #undef LLVM_PATH_TWOPI */
+#define LLVM_PATH_TWOPI "/usr/bin/twopi"
 
 /* Define to path to xdot.py program if found or 'echo xdot.py' otherwise */
 /* #undef LLVM_PATH_XDOT_PY */

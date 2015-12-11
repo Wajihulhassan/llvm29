@@ -24,14 +24,14 @@ use Cwd 'abs_path';
 my $PACKAGE_NAME        = q{llvm};
 my $VERSION             = q{2.9};
 my $PREFIX              = q{/usr/local};
-my $LLVM_CONFIGTIME     = q{Tue Oct 13 01:21:57 CDT 2015};
+my $LLVM_CONFIGTIME     = q{Thu Dec 10 23:46:53 CST 2015};
 my $LLVM_SRC_ROOT       = q{/home/klee/klee/llvm-2.9};
 my $LLVM_OBJ_ROOT       = q{/home/klee/klee/llvm-2.9};
 my $ARCH                = lc(q{x86_64});
 my $TARGET_TRIPLE       = q{x86_64-unknown-linux-gnu};
-my $TARGETS_TO_BUILD    = q{X86 Sparc PowerPC Alpha ARM Mips CellSPU XCore MSP430 SystemZ Blackfin CBackend CppBackend MBlaze PTX};
+my $TARGETS_TO_BUILD    = q{X86 };
 my $TARGET_HAS_JIT      = q{1};
-my @TARGETS_BUILT       = map { lc($_) } qw{X86 Sparc PowerPC Alpha ARM Mips CellSPU XCore MSP430 SystemZ Blackfin CBackend CppBackend MBlaze PTX};
+my @TARGETS_BUILT       = map { lc($_) } qw{X86 };
 #---- end autoconf values ----
 
 # Must pretend x86_64 architecture is really x86, otherwise the native backend
