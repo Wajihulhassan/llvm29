@@ -41,11 +41,14 @@
 #include "llvm/Analysis/DebugInfo.h"
 #include "llvm/Analysis/Passes.h"
 #include "llvm/ADT/DepthFirstIterator.h"
-
+#include "llvm/Analysis/PostDominators.h"
+#include "llvm/Analysis/MemoryDependenceAnalysis.h"
+#include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/LoopInfo.h"
 
 #include <vector>
 #include <utility>
+#include <fstream>
 
 using namespace llvm;
 
@@ -279,8 +282,13 @@ namespace {
 
 
     virtual void getAnalysisUsage(AnalysisUsage &AU) const {
-      //AU.setPreservesCFG();
       AU.addRequired<DominatorTree>();
+      //AU.addRequired<CallGraph>();
+      //AU.setPreservesCFG();
+      AU.setPreservesAll();
+      //AU.addRequired<MemoryDependenceAnalysis>();
+      
+      
     }
 
  

@@ -12,29 +12,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "hello"
+
 #include "llvm/Pass.h"
 #include "llvm/Module.h"
 #include "llvm/Function.h"
 #include "llvm/Instructions.h"
 #include "llvm/IntrinsicInst.h"
-
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/ADT/SmallSet.h"
-
-
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/CFG.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/type_traits.h"
 #include "llvm/Support/CommandLine.h"
-
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/Assembly/Writer.h"
@@ -47,26 +42,18 @@
 
 #include <vector>
 #include <utility>
+#include <fstream>
 
 using namespace llvm;
-
-//STATISTIC(DiffCounter, "Find the basic blocks that got Modified/Impacted");
-
 namespace {
-
-#include "llvm/Function.h"
-using namespace llvm;
-
-
   class Hello : public ModulePass {
   public:
-
     static char ID; 
-
     std::vector<BasicBlock*> mod_bbs;
-    std::vector<BasicBlock*> temp_bbs;
+   
     std::vector<std::string> bbs;
     std::vector<BasicBlock*> *diff_bbs_vec;
+
     std::vector<std::vector<BasicBlock*> > paths;
     std::vector<BasicBlock*> *my_diff_bbs;
     DominatorTree* domTree;
@@ -77,24 +64,32 @@ using namespace llvm;
 
     int my_tt;
     int *g;
+    bool called_from_klee = false;
 
     std::map<BasicBlock *, std::set<BasicBlock *> > controlDeps_;
 
    Hello() : ModulePass(ID) {}
 
     virtual bool runOnModule(Module &M) {
-      diff_bbs_vec=new std::vector<BasicBlock*>();
-      errs() << "Starting my diff/control/datadependence " << "\n";
+      errs() << "Starting my diff/control/data dependence Analysis" << "\n";
+      if(!called_from_klee)
+	diff_bbs_vec=new std::vector<BasicBlock*>();
+      // It is essential that both the original and modified version should be in same module
+
       Function *F1 = M.getFunction("func");
       Function *F2 = M.getFunction("func_2");
-      domTree = &getAnalysis<DominatorTree>(*F2);
-      PostDominatorTree &PDT = getAnalysis<PostDominatorTree>(*F2);
-      MemoryDependenceAnalysis &MDA = getAnalysis<MemoryDependenceAnalysis>(*F2);
+      domTree = &getAnalysis<DominatorTree>(*F2); // For reachability
+      PostDominatorTree &PDT = getAnalysis<PostDominatorTree>(*F2); // For control dependance
+      MemoryDependenceAnalysis &MDA = getAnalysis<MemoryDependenceAnalysis>(*F2);  // For data depen
+
       getControlDependencies(*F2, PDT);
-      // 
+      //  All the basic blocks for original version
+      std::vector<BasicBlock*> temp_bbs;
       for (Function::iterator bb = F1->begin() , e = F1->end(); bb !=e ;++bb ){
 	temp_bbs.push_back(bb);
       }
+      
+      // Calculating simple diff at basic block level
       int counter = 0;
       for (Function::iterator bb = F2->begin() , e = F2->end(); bb !=e ;++bb ){
 	BasicBlock * LL = temp_bbs.at(counter);
@@ -102,31 +97,33 @@ using namespace llvm;
 	counter++;
 	errs() << LL->getName() <<  " ---- " << RR->getName() <<"\n" ;
 	if(LL->getName().compare(RR->getName()) != 0){
-	  errs() << "Basic Block Names are not equal" << "\n" ;
+	  // Fixme handle the preprocessing
+	  errs() << "[Warning] Basic Block Names are not equal FIXME" << "\n" ;
 	  continue;
 	}
+	// This will update ACN and AWN sets
         diff(LL,RR);	
       }
-      
-      for (int c = 0; c<diff_bbs_vec->size();c++){
-	BasicBlock * temp_bb=  diff_bbs_vec->at(c);
-      }
-      errs() << "Size of cond and write vectors " << cond_vec.size()<<" --- " << write_vec.size()  <<"\n" ;
-      errs() << "Size of ACN and AWN vectors " << ACN.size()<<" --- " << AWN.size()  <<"\n" ;
-      BasicBlock* bb_temp=diff_bbs_vec->at(0);
-      std::set<BasicBlock*> cont_dep = controlDeps_[bb_temp];
-      
-      for (std::set<BasicBlock*>::iterator iter = cont_dep.begin(), iter_end = cont_dep.end();iter != iter_end ; iter++){
-	BasicBlock* bb = *iter;
-	errs()<< " Dependent BB ======= " << bb->getName() << "\n" ;
-      }
       bool updated;
-      // Updating the ACN and AWN sets
+      // Updating the ACN and AWN sets until it converges
+      typedef std::set<BasicBlock*>::iterator set_bb_iterator;
+      typedef std::vector<Instruction*>::iterator vec_inst_iterator;
+
+      // For each of the condition statement what is its data dependence
+      std::map<Instruction* , Instruction*> cond_dep;
+      for (vec_inst_iterator i_iter = cond_vec.begin(), i_iter_end = cond_vec.end();i_iter != i_iter_end ; i_iter++){
+	Instruction* II = *i_iter;
+	MemDepResult Res = MDA.getDependency(II);
+	Instruction* temp_i = Res.getInst();
+	cond_dep[II] = temp_i;
+      }
       do{
 	updated = false;
-	for (std::set<BasicBlock*>::iterator iter = ACN.begin(),iter_end=ACN.end();iter!=iter_end;iter++){
+	// =======================================================================
+	//  if n_i E ACN and n_j E Cond and Controldep(n_i, n_j)
+	for (set_bb_iterator iter = ACN.begin(),iter_end=ACN.end();iter!=iter_end;iter++){
 	  BasicBlock* acn_bb = *iter;
-	  for (std::vector<Instruction*>::iterator i_iter = cond_vec.begin(), i_iter_end = cond_vec.end();i_iter != i_iter_end ; i_iter++){
+	  for (vec_inst_iterator i_iter = cond_vec.begin(), i_iter_end = cond_vec.end();i_iter != i_iter_end ; i_iter++){
 	    Instruction* II = *i_iter;
 	    BasicBlock* temp_bb = II->getParent();
 	    if(!ACN.count(temp_bb)){
@@ -135,15 +132,14 @@ using namespace llvm;
 		updated = true;
 	      }
 	    }
-	  
 	  }
-	
-	} // outer loop for acn
+	} // outer loop for acn First condition
 
-
-	for (std::set<BasicBlock*>::iterator iter = ACN.begin(),iter_end=ACN.end();iter!=iter_end;iter++){
+	// =======================================================================
+	//  if n_i E ACN and n_j E write and Controldep(n_i, n_j)
+	for (set_bb_iterator iter = ACN.begin(),iter_end=ACN.end();iter!=iter_end;iter++){
 	  BasicBlock* acn_bb = *iter;
-	  for (std::vector<Instruction*>::iterator i_iter = write_vec.begin(), i_iter_end = write_vec.end();i_iter != i_iter_end ; i_iter++){
+	  for (vec_inst_iterator i_iter = write_vec.begin(), i_iter_end = write_vec.end();i_iter != i_iter_end ; i_iter++){
 	    Instruction* II = *i_iter;
 	    BasicBlock* temp_bb = II->getParent();
 	    if(!AWN.count(temp_bb)){
@@ -151,127 +147,64 @@ using namespace llvm;
 		AWN.insert(temp_bb);
 	      }
 	    }
-	  
 	  }
-	
-	} // outer loop for awn
+	} // outer loop for awn Second condition
 
-
-	// for (std::set<BasicBlock*>::iterator iter = AWN.begin(),iter_end=AWN.end();iter!=iter_end;iter++){
-	//   BasicBlock* awn_bb = *iter;
-	//   for (std::vector<Instruction*>::iterator i_iter = cond_vec.begin(), i_iter_end = cond_vec.end();i_iter != i_iter_end ; i_iter++){
-	//     Instruction* II = *i_iter;
-	//     if(!ACN.count(temp_bb)){
-	//       if(isDataDep(awn_bb,II,MDA)){
-	// 	AWN.insert(temp_bb);
-	//       }
-	//     }
-	  
-	//   }
-	
-	// } // outer loop for datadepent
-	
-
-	
-      }while(updated);
-      errs() << "Size of ACN and AWN vectors(updated) " << ACN.size()<<" --- " << AWN.size()  <<"\n" ;
-
-
-      for(std::vector<Instruction* >::iterator iter = write_vec.begin(); iter != write_vec.end(); ++iter){
-	Instruction* instr = *iter;
-	errs() << "def: " <<*instr << "\n";
-	if(instr->use_empty()){
-	  errs()<< "Use is empty()" << "\n";
-	}
-	Value *str = instr->getOperand(1);
-	for(Value::use_iterator i = str->use_begin(), ie = str->use_end(); i!=ie; ++i){
-	  if (Instruction *Inst = dyn_cast<Instruction>(*i)) {
-	    errs() << "def is used in instruction:\n";
-	    errs() << *Inst << "\n";
-	  }
-	} 
-
-      } // use-def chain for Instruction
-
-      for(std::vector<Instruction*>::iterator iter = write_vec.begin(); iter != write_vec.end(); ++iter){
-	Instruction* instr = *iter;
-	errs() << "use: " <<*instr << "\n"; 
-	for (User::op_iterator i = instr->op_begin(), e = instr->op_end(); i != e; ++i) {
-	  Instruction *vi = dyn_cast<Instruction>(*i);
-	  errs() << "\t\t" << *vi << "\n"; 
-	}
-      }
-
-      std::map<Instruction* , Instruction*> cond_dep;
-      for (std::vector<Instruction*>::iterator i_iter = cond_vec.begin(), i_iter_end = cond_vec.end();i_iter != i_iter_end ; i_iter++){
-	Instruction* II = *i_iter;
-	MemDepResult Res = MDA.getDependency(II);
-	Instruction* temp_i = Res.getInst();
-	cond_dep[II] = temp_i;
-	// errs() << " BB = " << II->getParent()->getName() << " = ";
-	// II->dump();
-	// errs() << '\n';
-	// errs() << " BB = " << temp_i->getParent()->getName() << " = ";
-	// temp_i->dump();
-	// errs()<< '\n';
-      }
-
-      //============================================
+	// == Data dependence ===================================================
      
-      std::map<Instruction*,std::set<Instruction*> > writeUseMap;
-
-      for (std::set<BasicBlock*>::iterator iter = AWN.begin(),iter_end=AWN.end();iter!=iter_end;iter++){
-	BasicBlock* awn_bb = *iter;
-	for(BasicBlock::iterator inst = awn_bb->begin(), inst_end = awn_bb->end(); inst != inst_end ; inst++){
-	  Instruction * write_inst = inst;
-	  if(isa<StoreInst>(write_inst)){
-	    llvm::Value *second_op = write_inst->getOperand(1);
-	    std::set<Instruction*> temp_set;
-	      for(llvm::Value::use_iterator i = second_op->use_begin(), ie = second_op->use_end(); i!=ie; ++i){
-		if (Instruction *Inst = dyn_cast<Instruction>(*i)) {
-		  
+	std::map<Instruction*,std::set<Instruction*> > writeUseMap;
+	for (set_bb_iterator iter = AWN.begin(),iter_end=AWN.end();iter!=iter_end;iter++){
+	  BasicBlock* awn_bb = *iter;
+	  for(BasicBlock::iterator inst = awn_bb->begin(), inst_end = awn_bb->end(); inst != inst_end ; inst++){
+	    Instruction * write_inst = inst;
+	    if(isa<StoreInst>(write_inst)){
+	      Value *second_op = write_inst->getOperand(1);
+	      std::set<Instruction*> temp_set;
+	      for(Value::use_iterator i = second_op->use_begin(), ie = second_op->use_end(); i!=ie; ++i){
+		if (Instruction *Inst = dyn_cast<Instruction>(*i)) {		  
 		  // Only if there is path from store to to use
 		  if(Ispotentiallyreachable(awn_bb,Inst->getParent(),domTree)){
-		    errs() << "def is used in instruction:\n";
-		    errs() << *Inst << "\n";
 		    temp_set.insert(Inst);
 		  }
 		}
 	      } 
-	    writeUseMap[inst]=temp_set;
-	  } //if storeinst
-	}
-      } // outer loop for datadepent
-      
-      
-      errs() << "Size of writeUseMap " << writeUseMap.size()  << "\n" ;
-      
-      for(std::map<Instruction*,std::set<Instruction*> >::iterator  iter = writeUseMap.begin(), iter_end = writeUseMap.end();iter!=iter_end;iter++){
-	std::set<Instruction*> temp_set = iter->second;
-	for(std::map<Instruction*,Instruction*>::iterator cond_iter = cond_dep.begin(), cond_iter_end = cond_dep.end();cond_iter!=cond_iter_end;cond_iter++){
-	  Instruction* dep = cond_iter->second;
-	  if(temp_set.count(dep)){
-	    errs() << "Mubarak ho" << "\n";
-	    BasicBlock* start_cfg = iter->first->getParent();
-	    BasicBlock* end_cfg = cond_iter->first->getParent();
-	    if(Ispotentiallyreachable(start_cfg,end_cfg,domTree)){
-	      if(!ACN.count(end_cfg)){
-		ACN.insert(end_cfg);
-		errs() << "Mubarak ho----" << "\n";
+	      writeUseMap[inst]=temp_set;
+	    } //if storeinst
+	  }
+	} // outer loop for datadepent
+	// Updating ACN
+	for(std::map<Instruction*,std::set<Instruction*> >::iterator  iter = writeUseMap.begin(), iter_end = writeUseMap.end();iter!=iter_end;iter++){
+	  std::set<Instruction*> temp_set = iter->second;
+	  for(std::map<Instruction*,Instruction*>::iterator cond_iter = cond_dep.begin(), cond_iter_end = cond_dep.end();cond_iter!=cond_iter_end;cond_iter++){
+	    Instruction* dep = cond_iter->second;
+	    if(temp_set.count(dep)){
+	      BasicBlock* start_cfg = iter->first->getParent();
+	      BasicBlock* end_cfg = cond_iter->first->getParent();
+	      if(Ispotentiallyreachable(start_cfg,end_cfg,domTree)){
+		if(!ACN.count(end_cfg)){
+		  ACN.insert(end_cfg);
+		  updated = true;
+		}
 	      }
-	      
 	    }
 	  }
 	}
-      }
 
-      errs() << "Size of ACN and AWN vectors(updated) " << ACN.size()<<" --- " << AWN.size()  <<"\n" 
-;
+      }while(updated);
+      errs() << "Size of ACN and AWN vectors(updated) " << ACN.size()<<" --- " << AWN.size()  <<"\n" ;
      
+      std:: ofstream diff_file("/tmp/diff_file.txt");
+      diff_bbs_vec->clear();
       for(std::set<BasicBlock*>::iterator iter = ACN.begin(), iter_end = ACN.end(); iter!=iter_end ; iter++){
 	BasicBlock* bb = *iter;
-	errs() << bb->getName() << '\n';
-
+	diff_bbs_vec->push_back(bb);
+	errs() << "ACN = " << bb->getName() << '\n';
+	std::string str = bb->getName();
+	diff_file << str << "\n";
+      }
+      for(std::set<BasicBlock*>::iterator iter = AWN.begin(), iter_end = AWN.end(); iter!=iter_end ; iter++){
+	BasicBlock* bb = *iter;
+	errs() << "AWN = " << bb->getName() << '\n';
       }
       return false;
     } // runOnModule
@@ -400,10 +333,8 @@ using namespace llvm;
 	if (L->getPredicate() != R->getPredicate())
 	  return false;
 	break;
-
       case Instruction::GetElementPtr:
 	break;
-
       default:
 	break;
       }
@@ -491,7 +422,7 @@ using namespace llvm;
 
 	while (curNode != parentA) {
 
-	  errs() << "[DEBUG] Iterating up dom tree\n";
+	  errs() << "[DEBUG] Iterating up post dom tree\n";
 
 	  // Mark each node visited on our way to the parent of A, but not A's
 	  // parent, as control dependent on A
@@ -503,8 +434,8 @@ using namespace llvm;
 	// Because std::map::operator[] returns a reference to the set then I
 	// believe we do not need to do any insertions
 
-	errs() << "[DEBUG] size of depSet: " << depSet.size() << '\n';
-	errs() << "[DEBUG] size of map value: " << controlDeps_[A].size() << '\n';
+	//errs() << "[DEBUG] size of depSet: " << depSet.size() << '\n';
+	//errs() << "[DEBUG] size of map value: " << controlDeps_[A].size() << '\n';
 	assert(depSet.size() == controlDeps_[A].size() && "map size mis-match");
       } // end for(vector<>)
     }
@@ -569,11 +500,12 @@ using namespace llvm;
   }
 }; // class
   // External Interface of this pass for KLEE
-  ModulePass *createDiffBlocksPass(std::vector<BasicBlock*> *diff_bb_vec,int * in)
+  ModulePass *createDiffBlocksPass(std::vector<BasicBlock*> *diff_bb_vec)
   {    
     Hello *cg = new Hello();
+    errs() <<  " IN the create Diff Blocks Pass" << '\n';
+    cg->called_from_klee = true;
     cg->diff_bbs_vec = diff_bb_vec;
-    cg->g = in;
     return cg;
   }
 
@@ -594,21 +526,34 @@ namespace {
   public:
     static char ID; // Pass identification, replacement for typeid
     BasicBlock* targetBB;
-    bool * reachable;
+    int * reachable;
     BasicBlock* startBB;
+    std::vector<BasicBlock*> bb_vec;
     DominatorTree* domTree;
+    std::string target_bb_name;
     Hello2() : ModulePass(ID) {}
 
     virtual bool runOnModule(Module &M) {
       errs() << "Function: I Am here wajih YYAYAYAY " << "\n";
       Function *F2 = M.getFunction("func_2");
       domTree = &getAnalysis<DominatorTree>(*F2);
+      for (Function::iterator bb = F2->begin() , e = F2->end(); bb !=e ;++bb ){
+	bb_vec.push_back(bb);
+	std::string temp_str = bb->getName();
+	if(target_bb_name.compare(temp_str) == 0){
+	  //errs() << target_bb_name.c_str() << " YAYA Match found " << temp_str.c_str()  <<'\n' ;
+	  targetBB = bb;
+	}
+      }
       errs().write_escaped(F2->getName()) << '\n';
       errs() << targetBB->getName()  <<  " checking reachability from  " <<  startBB->getName() << "\n" ;
-      if(Ispotentiallyreachable(startBB,targetBB,domTree))
+      if(Ispotentiallyreachable(startBB,targetBB,domTree)){
   	  errs() << targetBB->getName()  <<  " is reachable from  " <<  startBB->getName() << "\n" ;
-  	else
-  	  errs() << targetBB->getName()  <<  " is not reachable from  " <<  startBB->getName() << "\n" ;
+	  *(this->reachable) = 1;
+      }else{
+	errs() << targetBB->getName()  <<  " is not reachable from  " <<  startBB->getName() << "\n" ;
+	*(this->reachable) = 0;
+      }
       return false;
     }
 
@@ -618,6 +563,7 @@ namespace {
     }
 
     bool Ispotentiallyreachable(const BasicBlock *A, const BasicBlock *B , const DominatorTree *DT) {
+      errs() << A->getParent()->getName() <<  " can reach to  " <<  B->getParent()->getName() << "\n" ;
       assert(A->getParent() == B->getParent() &&
 	     "This analysis is function-local!");
 
@@ -657,10 +603,10 @@ namespace {
     }
 
   };
-  ModulePass *createReachabilityPass(BasicBlock*  t_bb, BasicBlock* s_bb, bool* in)
+  ModulePass *createReachabilityPass(std::string  t_bb, BasicBlock* s_bb, int* in)
   {    
     Hello2 *cg2 = new Hello2();
-    cg2->targetBB = t_bb;
+    cg2->target_bb_name = t_bb;
     cg2->reachable = in;
     cg2->startBB = s_bb;
     return cg2;
