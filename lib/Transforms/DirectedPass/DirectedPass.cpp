@@ -534,7 +534,7 @@ namespace {
     Hello2() : ModulePass(ID) {}
 
     virtual bool runOnModule(Module &M) {
-      errs() << "Function: I Am here wajih YYAYAYAY " << "\n";
+      //errs() << "Function: I Am here wajih YYAYAYAY " << "\n";
       Function *F2 = M.getFunction("func_2");
       domTree = &getAnalysis<DominatorTree>(*F2);
       for (Function::iterator bb = F2->begin() , e = F2->end(); bb !=e ;++bb ){
@@ -545,13 +545,13 @@ namespace {
 	  targetBB = bb;
 	}
       }
-      errs().write_escaped(F2->getName()) << '\n';
-      errs() << targetBB->getName()  <<  " checking reachability from  " <<  startBB->getName() << "\n" ;
+      //errs().write_escaped(F2->getName()) << '\n';
+      //errs() << targetBB->getName()  <<  " checking reachability from  " <<  startBB->getName() << "\n" ;
       if(Ispotentiallyreachable(startBB,targetBB,domTree)){
-  	  errs() << targetBB->getName()  <<  " is reachable from  " <<  startBB->getName() << "\n" ;
+	//errs() << targetBB->getName()  <<  " is reachable from  " <<  startBB->getName() << "\n" ;
 	  *(this->reachable) = 1;
       }else{
-	errs() << targetBB->getName()  <<  " is not reachable from  " <<  startBB->getName() << "\n" ;
+	//errs() << targetBB->getName()  <<  " is not reachable from  " <<  startBB->getName() << "\n" ;
 	*(this->reachable) = 0;
       }
       return false;
